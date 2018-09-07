@@ -1,14 +1,20 @@
 <?php
 
+// This is a nasty/quick solution - would be nice to have a file selector in JavaScript or something like that later.
 if (isset($_GET['romFilename'])) {
-    $data = file_get_contents($_GET['romFilename']);
+    $filename = "roms/" . $_GET['romFilename'];
 } else {
-    $data = file_get_contents("MAZE");
+    $filename = "roms/MAZE";
 }
 
+if (!file_exists($filename)) {
+    die("Error: ROM file {$filename} does not exist.");
+}
+
+$data = file_get_contents($filename);
 
 if (empty($data)) {
-    die("Error: Missing ROM file");
+    die("Error: ROM file is empty");
 }
 
 $binaryToLoad = unpack("C*",$data);
@@ -162,7 +168,6 @@ $binaryString = implode(",",$binaryToLoad);
         </div>
     </div>
 
-    <script src="bitfield.js"></script>
     <script src="vue.js"></script>
 
     <script>
@@ -171,7 +176,7 @@ $binaryString = implode(",",$binaryToLoad);
 
             this.isPlaying = false;
 
-// set frame-rate
+            // set frame-rate
             this.frameRate = function(newfps) {
                 if (!arguments.length) return fps;
                 fps = newfps;
@@ -180,7 +185,7 @@ $binaryString = implode(",",$binaryToLoad);
                 time = null;
             };
 
-// enable starting/pausing of the object
+            // enable starting/pausing of the object
             this.start = function() {
                 if (!this.isPlaying) {
                     this.isPlaying = true;
