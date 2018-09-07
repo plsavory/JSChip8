@@ -171,7 +171,8 @@ $binaryString = implode(",",$binaryToLoad);
     <script src="vue.js"></script>
 
     <script>
-
+        // FpsCtrl function was not written by me - needs redoing ASAP.
+        // Source: https://stackoverflow.com/questions/19764018/controlling-fps-with-requestanimationframe
         function FpsCtrl(fps, callback) {
 
             this.isPlaying = false;
