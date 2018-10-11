@@ -1,8 +1,8 @@
 <?php
 
 // This is a nasty/quick solution - would be nice to have a file selector in JavaScript or something like that later.
-if (isset($_GET['romFilename'])) {
-    $filename = "roms/" . $_GET['romFilename'];
+if (isset($_GET['rom'])) {
+    $filename = "roms/" . $_GET['rom'];
 } else {
     $filename = "roms/MAZE";
 }
@@ -225,6 +225,10 @@ $binaryString = implode(",",$binaryToLoad);
 
         new Vue({
             el: "#app",
+            created: function () {
+                window.addEventListener('keyup', this.keyUp);
+                window.addEventListener('keydown', this.keyDown);
+            },
             data: {
                 CPUState: {
                     gpRegisters: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
@@ -235,7 +239,9 @@ $binaryString = implode(",",$binaryToLoad);
                     stack: [],
                     cpuMemory: [],
                     state: "paused",
-                    delayTimer: 0
+                    delayTimer: 0,
+                    soundTimer: 0,
+                    waitingKeyRegister: 0x0
                 },
                 programData: [
                     <?=$binaryString;?>
@@ -245,7 +251,8 @@ $binaryString = implode(",",$binaryToLoad);
                 videoMemory: [], // 64x64 Pixels
                 clockSpeed: 1,
                 displayMemory: true,
-                keyboardMap: []
+                keyboardMap: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                characterMap: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
             },
             methods: {
                 updateCanvas: function() {
@@ -257,11 +264,11 @@ $binaryString = implode(",",$binaryToLoad);
 
                     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-                    // Update the canvas with the contents of vide memory
+                    // Update the canvas with the contents of video memory
                     ctx.fillStyle="green";
 
-                    for (var iX = 0; iX<64;iX++) {
-                        for (var iY = 0; iY<64; iY++) {
+                    for (let iX = 0; iX<64;iX++) {
+                        for (let iY = 0; iY<64; iY++) {
                             if (this.videoMemory[iX][iY]) {
                                 ctx.fillRect(iX*8, iY*8,8, 8);
                             }
@@ -288,7 +295,7 @@ $binaryString = implode(",",$binaryToLoad);
                 },
                 getMemoryDisplay: function() {
 
-                    var displayString = "<table>";
+                    let displayString = "<table>";
 
                     for (iY = 0x200; iY<= 0x200+(this.programData.length); iY+=4) {
 
@@ -353,7 +360,7 @@ $binaryString = implode(",",$binaryToLoad);
                 },
                 reset: function () {
                     // Reset all of the general purpose registers
-                    for (var i = 0; i<16;i++) {
+                    for (let i = 0; i<16;i++) {
                         this.CPUState.gpRegisters[i] = 0x00;
                     }
 
@@ -370,17 +377,17 @@ $binaryString = implode(",",$binaryToLoad);
                     this.CPUState.state = "waiting";
 
                     // Clear the stack
-                    for (var i = 0; i<=0xF;i++) {
+                    for (let i = 0; i<=0xF;i++) {
                         this.CPUState.stack[i] = 0x0;
                     }
 
                     // Clear the keyboard map
-                    for (var i = 0; i<=0xF;i++) {
+                    for (let i = 0; i<=0xF;i++) {
                         this.keyboardMap[i] = 0x0;
                     }
 
                     // Load the program into memory
-                    for (var i = 0; i<=0xFFF; i++) {
+                    for (let i = 0; i<=0xFFF; i++) {
 
                         if (i >= 0x200) {
                             this.CPUState.cpuMemory[i] = this.programData[i-0x200];
@@ -389,11 +396,11 @@ $binaryString = implode(",",$binaryToLoad);
                     }
 
                     // Clear video memory
-                    for (var iX = 0; iX<= 64; iX++) {
+                    for (let iX = 0; iX<= 64; iX++) {
 
                         this.videoMemory[iX] = new Array(64);
 
-                        for (var iY = 0; iY<=64; iY++) {
+                        for (let iY = 0; iY<=64; iY++) {
                             this.videoMemory[iX][iY] = 0x0;
                         }
                     }
@@ -403,6 +410,9 @@ $binaryString = implode(",",$binaryToLoad);
                     this.clockSpeed = 1;
 
                     this.CPULog = [];
+
+                    // Add the character sprites into memory
+                    this.addCharactersToMemory();
                 },
                 writeVRegister: function (registerID, value) {
                     // Write to an 8-bit register
@@ -412,10 +422,10 @@ $binaryString = implode(",",$binaryToLoad);
                         return;
                     }
 
-                    this.CPUState.gpRegisters[registerID] = value & 255;
+                    this.CPUState.gpRegisters[registerID] = value & 0xFF;
                 },
                 writeVFRegister: function(value) {
-                    this.CPUState.gpRegisters[0xF] = value & 255;
+                    this.CPUState.gpRegisters[0xF] = value & 0xFF;
                 },
                 ni: function () {
 
@@ -497,6 +507,9 @@ $binaryString = implode(",",$binaryToLoad);
                                 case 0x4:
                                     this.addRegHandler(opcode);
                                     break;
+                                case 0x5:
+                                    this.subRegHandler(opcode);
+                                    break;
                                 case 0x6:
                                     this.shrHandler(opcode);
                                     break;
@@ -552,11 +565,27 @@ $binaryString = implode(",",$binaryToLoad);
                                 case 0x07:
                                     this.getDelayTimer(opcode);
                                     break;
+                                case 0x0A:
+                                    this.CPUState.state = 'waitForInput';
+                                    this.CPUState.waitingKeyRegister = this.getRegisterId(opcode.whole);
+                                    break;
                                 case 0x15:
                                     this.setDelayTimer(opcode);
                                     break;
+                                case 0x18:
+                                    this.setSoundTimer(opcode);
+                                    break;
                                 case 0x1E:
                                     this.addIHandler(opcode);
+                                    break;
+                                case 0x29:
+                                    this.setItoCharacterLocation(opcode);
+                                    break;
+                                case 0x33:
+                                    this.storeBCD(opcode);
+                                    break;
+                                case 0x55:
+                                    this.storeRegistersInMemory(opcode);
                                     break;
                                 case 0x65:
                                     this.fillRegisters(opcode);
@@ -588,7 +617,7 @@ $binaryString = implode(",",$binaryToLoad);
                 },
                 logActivity(logObject) {
 
-                    if (this.CPUState.state === "running") {
+                    if (this.CPUState.state === "running" || this.CPUState.state === "waitForInput") {
                         return;
                     }
 
@@ -665,18 +694,31 @@ $binaryString = implode(",",$binaryToLoad);
                     let y = this.CPUState.gpRegisters[this.get2ndRegisterId(opcode.whole)];
                     let height = this.get4BitArg(opcode.whole);
 
-                    for (var iY = 0; iY < height; iY++) {
+                    for (let iY = 0; iY < height; iY++) {
                         // Draw a line of the sprite
-                        var spriteBitmapLine = this.CPUState.cpuMemory[this.CPUState.i+iY];
+                        let spriteBitmapLine = this.CPUState.cpuMemory[this.CPUState.i+iY];
 
-                        for (var iX=0; iX < 8; iX++) {
-                            var mask = 1 << (7-iX);
+                        let setVF = false;
+
+                        for (let iX=0; iX < 8; iX++) {
+                            let mask = 1 << (7-iX);
 
                             if ((spriteBitmapLine & mask) !== 0) {
+
+                                if (this.videoMemory[(x + iX) % 64][(y + iY) % 64]) {
+                                    setVF = true;
+                                }
+
                                 this.videoMemory[(x + iX) % 64][(y + iY) % 64] ^= 1;
                             } else {
                                 this.videoMemory[(x + iX) % 64][(y + iY) % 64] ^= 0;
                             }
+                        }
+
+                        if (setVF) {
+                            this.writeVFRegister(true);
+                        } else {
+                            this.writeVFRegister(false);
                         }
                     }
 
@@ -729,11 +771,11 @@ $binaryString = implode(",",$binaryToLoad);
                 },
                 clsHandler: function(opcode) {
                     // Clear video memory
-                    for (var iX = 0; iX<= 64; iX++) {
+                    for (let iX = 0; iX<= 64; iX++) {
 
                         this.videoMemory[iX] = new Array(64);
 
-                        for (var iY = 0; iY<=64; iY++) {
+                        for (let iY = 0; iY<=64; iY++) {
                             this.videoMemory[iX][iY] = 0x0;
                         }
                     }
@@ -756,6 +798,16 @@ $binaryString = implode(",",$binaryToLoad);
                         message: ""
                     });
                 },
+                setSoundTimer: function(opcode) {
+                  this.CPUState.soundTimer = this.CPUState.gpRegisters[this.getRegisterId(opcode.whole)];
+
+                    this.logActivity({
+                        opcodeVal: opcode.whole,
+                        mnemonic: "LDST",
+                        arg: "",
+                        message: ""
+                    });
+                },
                 getDelayTimer: function(opcode) {
                     // Store the contents of delayTimer into VX
                     let register = this.getRegisterId(opcode.whole);
@@ -764,8 +816,8 @@ $binaryString = implode(",",$binaryToLoad);
                 },
                 fillRegisters: function(opcode) {
                     // Read registers V0 through Vx from memory starting at location I.
-                    var registerCount = this.getRegisterId(opcode.whole);
-                    for (var i = 0; i <= registerCount; i++) {
+                    let registerCount = this.getRegisterId(opcode.whole);
+                    for (let i = 0; i <= registerCount; i++) {
                         this.writeVRegister(i,this.CPUState.cpuMemory[this.CPUState.i + i]);
                     }
 
@@ -777,7 +829,7 @@ $binaryString = implode(",",$binaryToLoad);
                     });
                 },
                 shrHandler: function(opcode) {
-                  var register = this.getRegisterId(opcode.whole);
+                  let register = this.getRegisterId(opcode.whole);
 
                   if (this.bitTest(this.CPUState.gpRegisters[register],7)) {
                       this.writeVFRegister(1);
@@ -807,7 +859,7 @@ $binaryString = implode(",",$binaryToLoad);
                 },
                 shlHandler: function(opcode) {
                     // Set Vx = Vx SHL 1.
-                    var register = this.getRegisterId(opcode.whole);
+                    let register = this.getRegisterId(opcode.whole);
 
                     if (this.bitTest(this.CPUState.gpRegisters[register],0)) {
                         this.writeVFRegister(1);
@@ -826,8 +878,8 @@ $binaryString = implode(",",$binaryToLoad);
                 },
                 sneHandler: function(opcode) {
 
-                    var register1 = this.getRegisterId(opcode.whole);
-                    var register2 = this.get2ndRegisterId(opcode.whole);
+                    let register1 = this.getRegisterId(opcode.whole);
+                    let register2 = this.get2ndRegisterId(opcode.whole);
 
                     if (this.CPUState.gpRegisters[register1] !== this.CPUState.gpRegisters[register2]) {
                         this.CPUState.pc += 2;
@@ -922,7 +974,7 @@ $binaryString = implode(",",$binaryToLoad);
                         this.writeVFRegister(0);
                     }
 
-                    this.writeVRegister(register1,result & 0xFF);
+                    this.writeVRegister(register1,result);
 
                     this.logActivity({
                         opcodeVal: opcode.whole,
@@ -931,16 +983,30 @@ $binaryString = implode(",",$binaryToLoad);
                         message: this.displayRegisterID(register2)
                     });
                 },
+                subRegHandler: function(opcode) {
+                    let register1 = this.getRegisterId(opcode.whole);
+                    let register2 = this.get2ndRegisterId(opcode.whole);
+
+                    if (register1 > register2) {
+                        this.writeVFRegister(true);
+                    } else {
+                        this.writeVFRegister(false);
+                    }
+
+                    let result = this.CPUState.gpRegisters[register1] - this.CPUState.gpRegisters[register2];
+
+                    this.writeVRegister(register1,result);
+                },
                 skipIfKeyPressed: function(opcode) {
                     let key = this.CPUState.gpRegisters[this.getRegisterId(opcode.whole)];
 
-                    if (this.keyboardMap[key] === 1) {
+                    if (this.keyboardMap[key]) {
                         this.CPUState.pc += 2;
                     }
 
                     this.logActivity({
                         opcodeVal: opcode.whole,
-                        mnemonic: "SKNP",
+                        mnemonic: "SKP",
                         arg: "",
                         message: ""
                     });
@@ -948,7 +1014,7 @@ $binaryString = implode(",",$binaryToLoad);
                 skipIfKeyNotPressed: function(opcode) {
                     let key = this.CPUState.gpRegisters[this.getRegisterId(opcode.whole)];
 
-                    if (this.keyboardMap[key] === 0) {
+                    if (!this.keyboardMap[key]) {
                         this.CPUState.pc += 2;
                     }
 
@@ -999,16 +1065,215 @@ $binaryString = implode(",",$binaryToLoad);
                     let retVal = this.CPUState.stack[this.CPUState.stackPointer];
                     this.CPUState.stack[this.CPUState.stackPointer] = 0x0;
                     return retVal;
+                },
+                setItoCharacterLocation: function(opcode) {
+                    let register1 = this.getRegisterId(opcode.whole);
+                    character = this.CPUState.gpRegisters[register1];
+                    this.CPUState.i = this.characterMap[character];
+                },
+                storeRegistersInMemory: function(opcode) {
+                    // Fx55 - LD [I], Vx
+
+                    endRegister = this.getRegisterId(opcode.whole);
+
+                    for (let i = 0; i <=endRegister; i++) {
+                        this.CPUState.cpuMemory[this.CPUState.i+i] = this.CPUState.gpRegisters[i];
+                    }
+                },
+                storeBCD(opcode) {
+                    let value = this.CPUState.gpRegisters[this.getRegisterId(opcode.whole)];
+
+                    this.CPUState.cpuMemory[this.CPUState.i] = ((value/100)&0xFF);
+                    this.CPUState.cpuMemory[this.CPUState.i+1] = ((value/10)%10)&0xFF;
+                    this.CPUState.cpuMemory[this.CPUState.i+2] = (value%100)&0xFF;
+
+                },
+                keyUp: function (key) {
+                    this.setKey(key.keyCode, false);
+                },
+                keyDown: function(key) {
+
+                    if (this.CPUState.state === "waitForInput") {
+                        this.CPUState.gpRegisters[this.CPUState.waitingKeyRegister] = this.getKeyId(key.keyCode);
+                        this.CPUState.state = "running";
+                    } else {
+                        this.setKey(key.keyCode, true);
+                    }
+
+                },
+                setKey: function(keyCode,val) {
+                    keyId = this.getKeyId(keyCode);
+
+                    if (keyId) {
+                        this.keyboardMap[keyId] = val;
+                    }
+                },
+                getKeyId: function(keyCode) {
+
+                    switch(keyCode) {
+                        case 12: // X
+                             return 0x1;
+                        case 187: // =
+                            return 0x2;
+                        case 111: // /
+                            return 0x3;
+                        case 81: // Q
+                            return 0xC;
+                        case 55: // 7
+                            return 0x4;
+                        case 56: // 8
+                            return 0x5;
+                        case 57: // 9
+                            return 0x6;
+                        case 87: // W
+                            return 0xD;
+                        case 52: // 4
+                            return 0x7;
+                        case 53: // 5
+                            return 0x8;
+                        case 54: // 6
+                            return 0x9;
+                        case 69: // E
+                            return 0xE;
+                        case 49: // 1
+                            return 0xA;
+                        case 50: // 2
+                            return 0x0;
+                        case 51: // 3
+                            return 0xB;
+                        case 82:
+                            return 0xF;
+                        default:
+                            return null;
+                    }
+
+                },
+                addCharactersToMemory: function() {
+
+                    // 0
+                    this.CPUState.cpuMemory[0x0] = 0xF0;
+                    this.CPUState.cpuMemory[0x1] = 0x90;
+                    this.CPUState.cpuMemory[0x2] = 0x90;
+                    this.CPUState.cpuMemory[0x3] = 0x90;
+                    this.CPUState.cpuMemory[0x4] = 0xF0;
+
+                    // 1
+                    this.CPUState.cpuMemory[0x5] = 0x20;
+                    this.CPUState.cpuMemory[0x6] = 0x60;
+                    this.CPUState.cpuMemory[0x7] = 0x20;
+                    this.CPUState.cpuMemory[0x8] = 0x20;
+                    this.CPUState.cpuMemory[0x9] = 0x70;
+
+                    // 2
+                    this.CPUState.cpuMemory[0xA] = 0xF0;
+                    this.CPUState.cpuMemory[0xB] = 0x10;
+                    this.CPUState.cpuMemory[0xC] = 0xF0;
+                    this.CPUState.cpuMemory[0xD] = 0x80;
+                    this.CPUState.cpuMemory[0xE] = 0xF0;
+
+                    // 3
+                    this.CPUState.cpuMemory[0xF] = 0xF0;
+                    this.CPUState.cpuMemory[0x10] = 0x10;
+                    this.CPUState.cpuMemory[0x11] = 0xF0;
+                    this.CPUState.cpuMemory[0x12] = 0x10;
+                    this.CPUState.cpuMemory[0x13] = 0xF0;
+
+                    // 4
+                    this.CPUState.cpuMemory[0x14] = 0x90;
+                    this.CPUState.cpuMemory[0x15] = 0x90;
+                    this.CPUState.cpuMemory[0x16] = 0xF0;
+                    this.CPUState.cpuMemory[0x17] = 0x10;
+                    this.CPUState.cpuMemory[0x18] = 0x10;
+
+                    // 5
+                    this.CPUState.cpuMemory[0x19] = 0xF0;
+                    this.CPUState.cpuMemory[0x1A] = 0x80;
+                    this.CPUState.cpuMemory[0x1B] = 0xF0;
+                    this.CPUState.cpuMemory[0x1C] = 0x10;
+                    this.CPUState.cpuMemory[0x1D] = 0xF0;
+
+                    // 6
+                    this.CPUState.cpuMemory[0x1E] = 0xF0;
+                    this.CPUState.cpuMemory[0x1F] = 0x80;
+                    this.CPUState.cpuMemory[0x20] = 0xF0;
+                    this.CPUState.cpuMemory[0x21] = 0x90;
+                    this.CPUState.cpuMemory[0x22] = 0xF0;
+
+                    // 7
+                    this.CPUState.cpuMemory[0x23] = 0xF0;
+                    this.CPUState.cpuMemory[0x24] = 0x10;
+                    this.CPUState.cpuMemory[0x25] = 0x20;
+                    this.CPUState.cpuMemory[0x26] = 0x40;
+                    this.CPUState.cpuMemory[0x27] = 0x40;
+
+                    // 8
+                    this.CPUState.cpuMemory[0x28] = 0xF0;
+                    this.CPUState.cpuMemory[0x29] = 0x90;
+                    this.CPUState.cpuMemory[0x2A] = 0xF0;
+                    this.CPUState.cpuMemory[0x2B] = 0x90;
+                    this.CPUState.cpuMemory[0x2C] = 0xF0;
+
+                    // 9
+                    this.CPUState.cpuMemory[0x2D] = 0xF0;
+                    this.CPUState.cpuMemory[0x2E] = 0x90;
+                    this.CPUState.cpuMemory[0x2F] = 0xF0;
+                    this.CPUState.cpuMemory[0x30] = 0x10;
+                    this.CPUState.cpuMemory[0x31] = 0xF0;
+
+                    // A
+                    this.CPUState.cpuMemory[0x32] = 0xF0;
+                    this.CPUState.cpuMemory[0x33] = 0x90;
+                    this.CPUState.cpuMemory[0x34] = 0xF0;
+                    this.CPUState.cpuMemory[0x35] = 0x90;
+                    this.CPUState.cpuMemory[0x36] = 0x90;
+
+                    // B
+                    this.CPUState.cpuMemory[0x37] = 0xE0;
+                    this.CPUState.cpuMemory[0x38] = 0x90;
+                    this.CPUState.cpuMemory[0x39] = 0xE0;
+                    this.CPUState.cpuMemory[0x3A] = 0x90;
+                    this.CPUState.cpuMemory[0x3B] = 0xE0;
+
+                    // C
+                    this.CPUState.cpuMemory[0x3C] = 0xF0;
+                    this.CPUState.cpuMemory[0x3D] = 0x80;
+                    this.CPUState.cpuMemory[0x3E] = 0x80;
+                    this.CPUState.cpuMemory[0x3F] = 0x80;
+                    this.CPUState.cpuMemory[0x40] = 0xF0;
+
+                    // D
+                    this.CPUState.cpuMemory[0x41] = 0xE0;
+                    this.CPUState.cpuMemory[0x42] = 0x90;
+                    this.CPUState.cpuMemory[0x43] = 0x90;
+                    this.CPUState.cpuMemory[0x44] = 0x90;
+                    this.CPUState.cpuMemory[0x45] = 0xE0;
+
+                    // E
+                    this.CPUState.cpuMemory[0x46] = 0xF0;
+                    this.CPUState.cpuMemory[0x47] = 0x80;
+                    this.CPUState.cpuMemory[0x48] = 0xF0;
+                    this.CPUState.cpuMemory[0x49] = 0x80;
+                    this.CPUState.cpuMemory[0x4A] = 0xF0;
+
+                    // F
+                    this.CPUState.cpuMemory[0x4B] = 0xF0;
+                    this.CPUState.cpuMemory[0x4C] = 0x80;
+                    this.CPUState.cpuMemory[0x4D] = 0xF0;
+                    this.CPUState.cpuMemory[0x4E] = 0x80;
+                    this.CPUState.cpuMemory[0x4F] = 0x80;
+
+                    // Set the character map to point to the correct memory locations
+                    this.characterMap = [0x0,0x5,0xA,0xF,0x14,0x19,0x1E,0x23,0x28,0x2D,0x32,0x37,0x3C,0x41,0x46,0x4B];
                 }
             },
             mounted: function() {
 
                 // Clear video memory
-                for (var iX = 0; iX<= 64; iX++) {
+                for (let iX = 0; iX<= 64; iX++) {
 
                     this.videoMemory[iX] = new Array(64);
 
-                    for (var iY = 0; iY<=64; iY++) {
+                    for (let iY = 0; iY<=64; iY++) {
                         this.videoMemory[iX][iY] = 0x0;
                     }
                 }
