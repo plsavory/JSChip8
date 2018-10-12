@@ -27,7 +27,7 @@ $binaryString = implode(",",$binaryToLoad);
 <html>
 
 <head>
-	<title>Chip-8 Interpreter</title>
+	<title>SuperChip-8 Interpreter</title>
 	<link rel="stylesheet" type="text/css" href="bootstrap.min.css">
     <link rel="stylesheet" type="text/css" href="style.css">
 </head>
@@ -38,7 +38,7 @@ $binaryString = implode(",",$binaryToLoad);
         <div class="container">
             <div class="row">
                 <div class="col-sm-12">
-                    <h1 style="text-align:center">Chip-8 JavaScript Interpreter</h1>
+                    <h1 style="text-align:center">SuperChip-8 JavaScript Interpreter</h1>
                     <hr/>
                 </div>
             </div>
@@ -47,22 +47,9 @@ $binaryString = implode(",",$binaryToLoad);
                     <h1 style="text-align: center">Display</h1>
                     <hr>
 
-                    <div class="row" style="height:270px; border-style:inset">
-                        <div class="col-sm-7">
-                            <canvas id="canvas" width="512" height="256"></canvas>
-                        </div>
-
-                        <div class="col-sm-5">
-                            <h2>Stack</h2>
-                            <div class="row">
-                                <div class="col-sm-12" style="border-style:inset">
-                                    <div v-for="(item, index) in CPUState.stack">
-                                        <p style="float:left; border-style:inset; padding:3px;">
-                                            {{displayHex(index)}}: {{displayHex(item)}}
-                                        </p>
-                                    </div>
-                                </div>
-                            </div>
+                    <div class="row" style="height:520px; border-style:inset">
+                        <div class="col-sm-12">
+                            <canvas id="canvas" width="1024" height="512"></canvas>
                         </div>
                     </div>
                 </div>
@@ -250,9 +237,11 @@ $binaryString = implode(",",$binaryToLoad);
                 CPULog: [],
                 videoMemory: [], // 64x64 Pixels
                 clockSpeed: 1,
-                displayMemory: true,
+                displayMemory: false,
                 keyboardMap: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-                characterMap: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+                characterMap: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                largeCharacterMap: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+                videoMode: 1
             },
             methods: {
                 updateCanvas: function() {
@@ -267,10 +256,10 @@ $binaryString = implode(",",$binaryToLoad);
                     // Update the canvas with the contents of video memory
                     ctx.fillStyle="green";
 
-                    for (let iX = 0; iX<64;iX++) {
-                        for (let iY = 0; iY<64; iY++) {
+                    for (let iX = 0; iX<64*this.videoMode;iX++) {
+                        for (let iY = 0; iY<32*this.videoMode; iY++) {
                             if (this.videoMemory[iX][iY]) {
-                                ctx.fillRect(iX*8, iY*8,8, 8);
+                                ctx.fillRect(iX*(16/this.videoMode), iY*(16/this.videoMode),(16/this.videoMode), (16/this.videoMode));
                             }
                         }
                     }
@@ -396,23 +385,24 @@ $binaryString = implode(",",$binaryToLoad);
                     }
 
                     // Clear video memory
-                    for (let iX = 0; iX<= 64; iX++) {
-
-                        this.videoMemory[iX] = new Array(64);
-
-                        for (let iY = 0; iY<=64; iY++) {
-                            this.videoMemory[iX][iY] = 0x0;
-                        }
-                    }
+                    this.clearVideoMemory();
 
                     this.updateCanvas();
-
-                    this.clockSpeed = 1;
 
                     this.CPULog = [];
 
                     // Add the character sprites into memory
                     this.addCharactersToMemory();
+                },
+                clearVideoMemory() {
+                    for (let iX = 0; iX<= 64*this.videoMode; iX++) {
+
+                        this.videoMemory[iX] = new Array(64*this.videoMode);
+
+                        for (let iY = 0; iY<=64; iY++) {
+                            this.videoMemory[iX][iY] = 0x0;
+                        }
+                    }
                 },
                 writeVRegister: function (registerID, value) {
                     // Write to an 8-bit register
@@ -466,15 +456,26 @@ $binaryString = implode(",",$binaryToLoad);
                                 case 0xEE:
                                     this.retHandler(opcode);
                                     break;
+                                case 0xFE:
+                                    this.setVideoMode(1);
+                                    break;
+                                case 0xFF:
+                                    this.setVideoMode(2);
+                                    break;
                                 default:
-                                    this.CPUState.state = "error";
+                                    // Nasty hack due to time comstraint - fix later
+                                    if ((((opcode.lower >> 4) & 0xFF) << 4) == 0xC0) {
+                                        this.scrollDown(opcode);
+                                    } else {
+                                        this.CPUState.state = "error";
 
-                                    this.logActivity({
-                                        opcodeVal: opcode.whole,
-                                        mnemonic: "UNK",
-                                        arg: "",
-                                        message: "Unknown Opcode"
-                                    });
+                                        this.logActivity({
+                                            opcodeVal: opcode.whole,
+                                            mnemonic: "UNK",
+                                            arg: "",
+                                            message: "Unknown Opcode"
+                                        });
+                                    }
                                     break;
                             }
                             break;
@@ -490,6 +491,9 @@ $binaryString = implode(",",$binaryToLoad);
                         case 0x4:
                             this.sneqHandler(opcode);
                             break;
+                        case 0x5:
+                            this.seqHandler(opcode);
+                            break;
                         case 0x6:
                             this.ldxHandler(opcode);
                             break;
@@ -501,8 +505,14 @@ $binaryString = implode(",",$binaryToLoad);
                                 case 0x0:
                                     this.transferHandler(opcode);
                                     break;
+                                case 0x1:
+                                    this.orRegHandler(opcode);
+                                    break;
                                 case 0x2:
                                     this.vandHandler(opcode);
+                                    break;
+                                case 0x3:
+                                    this.xorRegHandler(opcode);
                                     break;
                                 case 0x4:
                                     this.addRegHandler(opcode);
@@ -512,6 +522,9 @@ $binaryString = implode(",",$binaryToLoad);
                                     break;
                                 case 0x6:
                                     this.shrHandler(opcode);
+                                    break;
+                                case 0x7:
+                                    this.subnHandler(opcode);
                                     break;
                                 case 0xE:
                                     this.shlHandler(opcode);
@@ -580,6 +593,9 @@ $binaryString = implode(",",$binaryToLoad);
                                     break;
                                 case 0x29:
                                     this.setItoCharacterLocation(opcode);
+                                    break;
+                                case 0x30:
+                                    this.setItoLargeCharacterLocation(opcode);
                                     break;
                                 case 0x33:
                                     this.storeBCD(opcode);
@@ -694,31 +710,92 @@ $binaryString = implode(",",$binaryToLoad);
                     let y = this.CPUState.gpRegisters[this.get2ndRegisterId(opcode.whole)];
                     let height = this.get4BitArg(opcode.whole);
 
-                    for (let iY = 0; iY < height; iY++) {
-                        // Draw a line of the sprite
-                        let spriteBitmapLine = this.CPUState.cpuMemory[this.CPUState.i+iY];
+                    // if Argument is 0 and we're in SuperChip mode, we need to draw a 16x16 sprite.
+                    if (height === 0 && this.videoMode === 2) {
 
-                        let setVF = false;
+                        height = 16;
 
-                        for (let iX=0; iX < 8; iX++) {
-                            let mask = 1 << (7-iX);
+                        for (let iY = 0; iY < height; iY++) {
 
-                            if ((spriteBitmapLine & mask) !== 0) {
+                            let spriteBitmapLineL = this.CPUState.cpuMemory[this.CPUState.i + (iY*2)];
+                            let spriteBitmapLineR = this.CPUState.cpuMemory[this.CPUState.i + (iY*2)+1];
 
-                                if (this.videoMemory[(x + iX) % 64][(y + iY) % 64]) {
-                                    setVF = true;
+                            let setVF = false;
+
+                            let videoWidth = 64 * this.videoMode;
+                            let videoHeight = 64 * this.videoMode;
+
+                            for (let iX = 0; iX < 8; iX++) {
+
+                                let mask = 1 << (7 - iX);
+
+                                // Left side
+                                if ((spriteBitmapLineL & mask) !== 0) {
+
+                                        if (this.videoMemory[(x + iX) % videoWidth][(y + iY) % videoHeight]) {
+                                            setVF = true;
+                                        }
+
+                                        this.videoMemory[(x + iX) % videoWidth][(y + iY) % videoHeight] ^= 1;
+                                    }
+                                else
+                                    {
+                                        this.videoMemory[(x + iX) % videoWidth][(y + iY) % videoHeight] ^= 0;
+                                    }
+
+                                // Right side
+                                if ((spriteBitmapLineR & mask) !== 0) {
+
+                                    if (this.videoMemory[(x + iX + 8) % videoWidth][(y + iY) % videoHeight]) {
+                                        setVF = true;
+                                    }
+
+                                    this.videoMemory[(x + iX + 8) % videoWidth][(y + iY) % videoHeight] ^= 1;
+                                }
+                                else
+                                {
+                                    this.videoMemory[(x + iX + 8) % videoWidth][(y + iY) % videoHeight] ^= 0;
                                 }
 
-                                this.videoMemory[(x + iX) % 64][(y + iY) % 64] ^= 1;
-                            } else {
-                                this.videoMemory[(x + iX) % 64][(y + iY) % 64] ^= 0;
+                                if (setVF) {
+                                    this.writeVFRegister(true);
+                                } else {
+                                    this.writeVFRegister(false);
+                                }
                             }
                         }
 
-                        if (setVF) {
-                            this.writeVFRegister(true);
-                        } else {
-                            this.writeVFRegister(false);
+                    } else {
+
+                        for (let iY = 0; iY < height; iY++) {
+                            // Draw a line of the sprite
+                            let spriteBitmapLine = this.CPUState.cpuMemory[this.CPUState.i + iY];
+
+                            let setVF = false;
+
+                            let videoWidth = 64 * this.videoMode;
+                            let videoHeight = 64 * this.videoMode;
+
+                            for (let iX = 0; iX < 8; iX++) {
+                                let mask = 1 << (7 - iX);
+
+                                if ((spriteBitmapLine & mask) !== 0) {
+
+                                    if (this.videoMemory[(x + iX) % videoWidth][(y + iY) % videoHeight]) {
+                                        setVF = true;
+                                    }
+
+                                    this.videoMemory[(x + iX) % videoWidth][(y + iY) % videoHeight] ^= 1;
+                                } else {
+                                    this.videoMemory[(x + iX) % videoWidth][(y + iY) % videoHeight] ^= 0;
+                                }
+                            }
+
+                            if (setVF) {
+                                this.writeVFRegister(true);
+                            } else {
+                                this.writeVFRegister(false);
+                            }
                         }
                     }
 
@@ -771,11 +848,11 @@ $binaryString = implode(",",$binaryToLoad);
                 },
                 clsHandler: function(opcode) {
                     // Clear video memory
-                    for (let iX = 0; iX<= 64; iX++) {
+                    for (let iX = 0; iX<= 64*this.videoMode; iX++) {
 
                         this.videoMemory[iX] = new Array(64);
 
-                        for (let iY = 0; iY<=64; iY++) {
+                        for (let iY = 0; iY<=64*this.videoMode; iY++) {
                             this.videoMemory[iX][iY] = 0x0;
                         }
                     }
@@ -831,7 +908,7 @@ $binaryString = implode(",",$binaryToLoad);
                 shrHandler: function(opcode) {
                   let register = this.getRegisterId(opcode.whole);
 
-                  if (this.bitTest(this.CPUState.gpRegisters[register],7)) {
+                  if (this.bitTest(this.CPUState.gpRegisters[register],0)) {
                       this.writeVFRegister(1);
                   } else {
                       this.writeVFRegister(0);
@@ -857,14 +934,27 @@ $binaryString = implode(",",$binaryToLoad);
                         message: ""
                     });
                 },
+                orRegHandler: function(opcode) {
+                  let register1 = this.getRegisterId(opcode.whole);
+                  let register2 = this.get2ndRegisterId(opcode.whole);
+
+                  this.CPUState.gpRegisters[register1] |= this.CPUState.gpRegisters[register2];
+
+                },
+                xorRegHandler: function(opcode) {
+                    let register1 = this.getRegisterId(opcode.whole);
+                    let register2 = this.get2ndRegisterId(opcode.whole);
+
+                    this.CPUState.gpRegisters[register1] ^= this.CPUState.gpRegisters[register2];
+                },
                 shlHandler: function(opcode) {
                     // Set Vx = Vx SHL 1.
                     let register = this.getRegisterId(opcode.whole);
 
-                    if (this.bitTest(this.CPUState.gpRegisters[register],0)) {
-                        this.writeVFRegister(1);
+                    if (this.bitTest(this.CPUState.gpRegisters[register],7)) {
+                        this.writeVFRegister(true);
                     } else {
-                        this.writeVFRegister(0);
+                        this.writeVFRegister(false);
                     }
 
                     this.writeVRegister(register,(this.CPUState.gpRegisters[register] * 2));
@@ -938,7 +1028,7 @@ $binaryString = implode(",",$binaryToLoad);
                 addIHandler: function(opcode) {
                     // Set I = I + Vx.
                     let register = this.getRegisterId(opcode.whole);
-                    this.CPUState.i = this.CPUState.i + this.CPUState.gpRegisters[register];
+                    this.CPUState.i += this.CPUState.gpRegisters[register];
 
                     this.logActivity({
                         opcodeVal: opcode.whole,
@@ -987,7 +1077,21 @@ $binaryString = implode(",",$binaryToLoad);
                     let register1 = this.getRegisterId(opcode.whole);
                     let register2 = this.get2ndRegisterId(opcode.whole);
 
-                    if (register1 > register2) {
+                    if (this.CPUState.gpRegisters[register1] > this.CPUState.gpRegisters[register2]) {
+                        this.writeVFRegister(true);
+                    } else {
+                        this.writeVFRegister(false);
+                    }
+
+                    let result = this.CPUState.gpRegisters[register1] - this.CPUState.gpRegisters[register2];
+
+                    this.writeVRegister(register1,result);
+                },
+                subnHandler: function(opcode) {
+                    let register1 = this.getRegisterId(opcode.whole);
+                    let register2 = this.get2ndRegisterId(opcode.whole);
+
+                    if (this.CPUState.gpRegisters[register2] > this.CPUState.gpRegisters[register1]) {
                         this.writeVFRegister(true);
                     } else {
                         this.writeVFRegister(false);
@@ -1071,6 +1175,11 @@ $binaryString = implode(",",$binaryToLoad);
                     character = this.CPUState.gpRegisters[register1];
                     this.CPUState.i = this.characterMap[character];
                 },
+                setItoLargeCharacterLocation: function(opcode) {
+                    let register1 = this.getRegisterId(opcode.whole);
+                    character = this.CPUState.gpRegisters[register1];
+                    this.CPUState.i = this.largeCharacterMap[character];
+                },
                 storeRegistersInMemory: function(opcode) {
                     // Fx55 - LD [I], Vx
 
@@ -1085,8 +1194,36 @@ $binaryString = implode(",",$binaryToLoad);
 
                     this.CPUState.cpuMemory[this.CPUState.i] = ((value/100)&0xFF);
                     this.CPUState.cpuMemory[this.CPUState.i+1] = ((value/10)%10)&0xFF;
-                    this.CPUState.cpuMemory[this.CPUState.i+2] = (value%100)&0xFF;
+                    this.CPUState.cpuMemory[this.CPUState.i+2] = (value%10)&0xFF;
 
+                },
+                seqHandler(opcode) {
+
+                    register1 = this.getRegisterId(opcode.whole);
+                    register2 = this.get2ndRegisterId(opcode.whole);
+
+                    if (this.CPUState.gpRegisters[register1] === this.CPUState.gpRegisters[register2]) {
+                        this.CPUState.pc+=2;
+                    }
+
+                    this.logActivity({
+                        opcodeVal: opcode.whole,
+                        mnemonic: "SEQ",
+                        arg: this.displayHex(this.getRegisterId(opcode.whole)),
+                        message: this.displayHex(this.get2ndRegisterId(opcode.whole))
+                    });
+                },
+                scrollDown: function(opcode) {
+                    // Scroll the screen downwards by the amount of the right-side of the opcode
+                    let amount = opcode.whole&0x0F;
+
+                    // Shift every pixel on the screen downwards by this amount
+                    for (let iY = 64; iY>=0; iY--) {
+                        for (let iX = 0; iX<=128; iX++) {
+                            this.videoMemory[iX][iY+amount] ^= this.videoMemory[iX][iY];
+                            this.videoMemory[iX][iY] = 0x0;
+                        }
+                    }
                 },
                 keyUp: function (key) {
                     this.setKey(key.keyCode, false);
@@ -1264,6 +1401,208 @@ $binaryString = implode(",",$binaryToLoad);
 
                     // Set the character map to point to the correct memory locations
                     this.characterMap = [0x0,0x5,0xA,0xF,0x14,0x19,0x1E,0x23,0x28,0x2D,0x32,0x37,0x3C,0x41,0x46,0x4B];
+
+                    // SuperChip Characters
+
+                    // 0
+                    this.CPUState.cpuMemory[0x50] = 0xF0;
+                    this.CPUState.cpuMemory[0x51] = 0xF0;
+                    this.CPUState.cpuMemory[0x52] = 0x90;
+                    this.CPUState.cpuMemory[0x53] = 0x90;
+                    this.CPUState.cpuMemory[0x54] = 0x90;
+                    this.CPUState.cpuMemory[0x55] = 0x90;
+                    this.CPUState.cpuMemory[0x56] = 0x90;
+                    this.CPUState.cpuMemory[0x57] = 0x90;
+                    this.CPUState.cpuMemory[0x58] = 0xF0;
+                    this.CPUState.cpuMemory[0x59] = 0xF0;
+
+                    // 1
+                    this.CPUState.cpuMemory[0x5A] = 0x20;
+                    this.CPUState.cpuMemory[0x5B] = 0x20;
+                    this.CPUState.cpuMemory[0x5C] = 0x60;
+                    this.CPUState.cpuMemory[0x5D] = 0x60;
+                    this.CPUState.cpuMemory[0x5E] = 0x20;
+                    this.CPUState.cpuMemory[0x5F] = 0x20;
+                    this.CPUState.cpuMemory[0x60] = 0x20;
+                    this.CPUState.cpuMemory[0x61] = 0x20;
+                    this.CPUState.cpuMemory[0x62] = 0x70;
+                    this.CPUState.cpuMemory[0x63] = 0x70;
+
+                    // 2
+                    this.CPUState.cpuMemory[0x64] = 0xF0;
+                    this.CPUState.cpuMemory[0x65] = 0xF0;
+                    this.CPUState.cpuMemory[0x66] = 0x10;
+                    this.CPUState.cpuMemory[0x67] = 0x10;
+                    this.CPUState.cpuMemory[0x68] = 0xF0;
+                    this.CPUState.cpuMemory[0x69] = 0xF0;
+                    this.CPUState.cpuMemory[0x6A] = 0x80;
+                    this.CPUState.cpuMemory[0x6B] = 0x80;
+                    this.CPUState.cpuMemory[0x6C] = 0xF0;
+                    this.CPUState.cpuMemory[0x6D] = 0xF0;
+
+                    // 3
+                    this.CPUState.cpuMemory[0x6E] = 0xF0;
+                    this.CPUState.cpuMemory[0x6F] = 0xF0;
+                    this.CPUState.cpuMemory[0x70] = 0x10;
+                    this.CPUState.cpuMemory[0x71] = 0x10;
+                    this.CPUState.cpuMemory[0x72] = 0xF0;
+                    this.CPUState.cpuMemory[0x73] = 0xF0;
+                    this.CPUState.cpuMemory[0x74] = 0x10;
+                    this.CPUState.cpuMemory[0x75] = 0x10;
+                    this.CPUState.cpuMemory[0x76] = 0xF0;
+                    this.CPUState.cpuMemory[0x77] = 0xF0;
+
+                    // 4
+                    this.CPUState.cpuMemory[0x78] = 0x90;
+                    this.CPUState.cpuMemory[0x79] = 0x90;
+                    this.CPUState.cpuMemory[0x7A] = 0x90;
+                    this.CPUState.cpuMemory[0x7B] = 0x90;
+                    this.CPUState.cpuMemory[0x7C] = 0xF0;
+                    this.CPUState.cpuMemory[0x7D] = 0xF0;
+                    this.CPUState.cpuMemory[0x7E] = 0x10;
+                    this.CPUState.cpuMemory[0x7F] = 0x10;
+                    this.CPUState.cpuMemory[0x80] = 0x10;
+                    this.CPUState.cpuMemory[0x81] = 0x10;
+
+                    // 5
+                    this.CPUState.cpuMemory[0x82] = 0xF0;
+                    this.CPUState.cpuMemory[0x83] = 0xF0;
+                    this.CPUState.cpuMemory[0x84] = 0x80;
+                    this.CPUState.cpuMemory[0x85] = 0x80;
+                    this.CPUState.cpuMemory[0x86] = 0xF0;
+                    this.CPUState.cpuMemory[0x87] = 0xF0;
+                    this.CPUState.cpuMemory[0x88] = 0x10;
+                    this.CPUState.cpuMemory[0x89] = 0x10;
+                    this.CPUState.cpuMemory[0x8A] = 0xF0;
+                    this.CPUState.cpuMemory[0x8B] = 0xF0;
+
+                    // 6
+                    this.CPUState.cpuMemory[0x8C] = 0xF0;
+                    this.CPUState.cpuMemory[0x8D] = 0xF0;
+                    this.CPUState.cpuMemory[0x8E] = 0x80;
+                    this.CPUState.cpuMemory[0x8F] = 0x80;
+                    this.CPUState.cpuMemory[0x90] = 0xF0;
+                    this.CPUState.cpuMemory[0x91] = 0xF0;
+                    this.CPUState.cpuMemory[0x92] = 0x90;
+                    this.CPUState.cpuMemory[0x93] = 0x90;
+                    this.CPUState.cpuMemory[0x94] = 0xF0;
+                    this.CPUState.cpuMemory[0x95] = 0xF0;
+
+                    // 7
+                    this.CPUState.cpuMemory[0x96] = 0xF0;
+                    this.CPUState.cpuMemory[0x97] = 0xF0;
+                    this.CPUState.cpuMemory[0x98] = 0x10;
+                    this.CPUState.cpuMemory[0x99] = 0x10;
+                    this.CPUState.cpuMemory[0x9A] = 0x20;
+                    this.CPUState.cpuMemory[0x9B] = 0x20;
+                    this.CPUState.cpuMemory[0x9C] = 0x40;
+                    this.CPUState.cpuMemory[0x9D] = 0x40;
+                    this.CPUState.cpuMemory[0x9E] = 0x40;
+                    this.CPUState.cpuMemory[0x9F] = 0x40;
+
+                    // 8
+                    this.CPUState.cpuMemory[0xA0] = 0xF0;
+                    this.CPUState.cpuMemory[0xA1] = 0xF0;
+                    this.CPUState.cpuMemory[0xA2] = 0x90;
+                    this.CPUState.cpuMemory[0xA3] = 0x90;
+                    this.CPUState.cpuMemory[0xA4] = 0xF0;
+                    this.CPUState.cpuMemory[0xA5] = 0xF0;
+                    this.CPUState.cpuMemory[0xA6] = 0x90;
+                    this.CPUState.cpuMemory[0xA7] = 0x90;
+                    this.CPUState.cpuMemory[0xA8] = 0xF0;
+                    this.CPUState.cpuMemory[0xA9] = 0xF0;
+
+                    // 9
+                    this.CPUState.cpuMemory[0xAA] = 0xF0;
+                    this.CPUState.cpuMemory[0xAB] = 0xF0;
+                    this.CPUState.cpuMemory[0xAC] = 0x90;
+                    this.CPUState.cpuMemory[0xAD] = 0x90;
+                    this.CPUState.cpuMemory[0xAE] = 0xF0;
+                    this.CPUState.cpuMemory[0xAF] = 0xF0;
+                    this.CPUState.cpuMemory[0xB1] = 0x10;
+                    this.CPUState.cpuMemory[0xB2] = 0x10;
+                    this.CPUState.cpuMemory[0xB3] = 0xF0;
+                    this.CPUState.cpuMemory[0xB4] = 0xF0;
+
+                    // A
+                    this.CPUState.cpuMemory[0xB5] = 0xF0;
+                    this.CPUState.cpuMemory[0xB6] = 0xF0;
+                    this.CPUState.cpuMemory[0xB7] = 0x90;
+                    this.CPUState.cpuMemory[0xB8] = 0x90;
+                    this.CPUState.cpuMemory[0xB9] = 0xF0;
+                    this.CPUState.cpuMemory[0xBA] = 0xF0;
+                    this.CPUState.cpuMemory[0xBB] = 0x90;
+                    this.CPUState.cpuMemory[0xBC] = 0x90;
+                    this.CPUState.cpuMemory[0xBD] = 0x90;
+                    this.CPUState.cpuMemory[0xBE] = 0x90;
+
+                    // B
+                    this.CPUState.cpuMemory[0xBF] = 0xE0;
+                    this.CPUState.cpuMemory[0xC0] = 0xE0;
+                    this.CPUState.cpuMemory[0xC1] = 0x90;
+                    this.CPUState.cpuMemory[0xC2] = 0x90;
+                    this.CPUState.cpuMemory[0xC3] = 0xE0;
+                    this.CPUState.cpuMemory[0xC4] = 0xE0;
+                    this.CPUState.cpuMemory[0xC5] = 0x90;
+                    this.CPUState.cpuMemory[0xC6] = 0x90;
+                    this.CPUState.cpuMemory[0xC7] = 0xE0;
+                    this.CPUState.cpuMemory[0xC8] = 0xE0;
+
+                    // C
+                    this.CPUState.cpuMemory[0xC9] = 0xF0;
+                    this.CPUState.cpuMemory[0xCA] = 0xF0;
+                    this.CPUState.cpuMemory[0xCB] = 0x80;
+                    this.CPUState.cpuMemory[0xCC] = 0x80;
+                    this.CPUState.cpuMemory[0xCD] = 0x80;
+                    this.CPUState.cpuMemory[0xCE] = 0x80;
+                    this.CPUState.cpuMemory[0xCF] = 0x80;
+                    this.CPUState.cpuMemory[0xD0] = 0x80;
+                    this.CPUState.cpuMemory[0xD1] = 0xF0;
+                    this.CPUState.cpuMemory[0xD2] = 0xF0;
+
+                    // D
+                    this.CPUState.cpuMemory[0xD3] = 0xE0;
+                    this.CPUState.cpuMemory[0xD4] = 0xE0;
+                    this.CPUState.cpuMemory[0xD5] = 0x90;
+                    this.CPUState.cpuMemory[0xD6] = 0x90;
+                    this.CPUState.cpuMemory[0xD7] = 0x90;
+                    this.CPUState.cpuMemory[0xD8] = 0x90;
+                    this.CPUState.cpuMemory[0xD9] = 0x90;
+                    this.CPUState.cpuMemory[0xDA] = 0x90;
+                    this.CPUState.cpuMemory[0xDB] = 0xE0;
+                    this.CPUState.cpuMemory[0xDC] = 0xE0;
+
+                    // E
+                    this.CPUState.cpuMemory[0xDD] = 0xF0;
+                    this.CPUState.cpuMemory[0xDE] = 0xF0;
+                    this.CPUState.cpuMemory[0xDF] = 0x80;
+                    this.CPUState.cpuMemory[0xE0] = 0x80;
+                    this.CPUState.cpuMemory[0xE1] = 0xF0;
+                    this.CPUState.cpuMemory[0xE2] = 0xF0;
+                    this.CPUState.cpuMemory[0xE3] = 0x80;
+                    this.CPUState.cpuMemory[0xE4] = 0x80;
+                    this.CPUState.cpuMemory[0xE5] = 0xF0;
+                    this.CPUState.cpuMemory[0xE6] = 0xF0;
+
+                    // F
+                    this.CPUState.cpuMemory[0xE7] = 0xF0;
+                    this.CPUState.cpuMemory[0xE8] = 0xF0;
+                    this.CPUState.cpuMemory[0xE9] = 0x80;
+                    this.CPUState.cpuMemory[0xEA] = 0x80;
+                    this.CPUState.cpuMemory[0xEB] = 0xF0;
+                    this.CPUState.cpuMemory[0xEC] = 0xF0;
+                    this.CPUState.cpuMemory[0xED] = 0x80;
+                    this.CPUState.cpuMemory[0xEE] = 0x80;
+                    this.CPUState.cpuMemory[0xEF] = 0x80;
+                    this.CPUState.cpuMemory[0xF0] = 0x80;
+
+                    this.largeCharacterMap = [0x50,0x5A,0x64,0x6E,0x78,0x82,0x8C,0x96,0xA0,0xAA,0xB5,0xBF,0xC9,0xD3,0xDD,0xE7];
+
+                },
+                setVideoMode: function(mode) {
+                    // 1: Chip8, 2: SuperChip
+                    this.videoMode = mode;
+                    this.clearVideoMemory();
                 }
             },
             mounted: function() {
