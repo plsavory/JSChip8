@@ -34,43 +34,84 @@ $binaryString = implode(",",$binaryToLoad);
 
 <body>
 
-    <div id="app">
-        <div class="container">
-            <div class="row">
-                <div class="col-sm-12">
-                    <h1 style="text-align:center">SuperChip-8 JavaScript Interpreter</h1>
-                    <hr/>
-                </div>
+    <div id = "app" class="app">
+
+        <div></div>
+
+        <div class="emulator">
+
+            <!--TODO: Put Title and ROM loading bar hre-->
+            <div>
+                <h1 style="text-align:center">SuperChip-8 JavaScript Interpreter</h1>
+                <hr/>
             </div>
-            <div class="row">
-                <div class="col-sm-12">
+
+            <div class="contentHeader"></div>
+
+            <div class="contentObject">
+
                     <h1 style="text-align: center">Display</h1>
                     <hr>
 
-                    <div class="row" style="height:520px; border-style:inset">
-                        <div class="col-sm-12">
-                            <canvas id="canvas" width="1024" height="512"></canvas>
+                    <div class="emulatorDisplay">
+                        <div></div>
+                        <canvas id="canvas" width="1280" height="640"></canvas>
+                        <div></div>
+                    </div>
+
+                <!-- Emulator controls -->
+                <hr>
+
+                <div class="emulatorControls">
+                    <div class="emulatorControlsBorder">
+                        <div class="buttonGroup">
+
+                            <div>
+                            <button v-on:click="toggleDebuggerDisplay" class="retro-button button-green">Debugger</button>
+                            </div>
+
+
+                            <div>
+                            <button v-on:click="resetCPU" class="retro-button button-green">Reset</button>
+                            </div>
+
+                            <div>
+                            <button v-on:click="stepCPU" class="retro-button button-green">Step</button>
+                            </div>
+
+                            <div>
+                            <div v-if="CPUState.state === 'running'">
+                                <button v-if="" v-on:click="breakCPU" class="retro-button button-red">Break</button>
+                            </div>
+
+                            <div v-else>
+                                <button v-if="" v-on:click="runCPU" class="retro-button button-green">Run</button>
+                            </div>
+
+                            </div>
+
+                            <div>
+                                Clock Speed: <input type="range" min="1" max="50" v-model="clockSpeed"/>
+                            </div>
                         </div>
-                    </div>
+
+                     </div>
                 </div>
+
             </div>
-            <div class="row">
-                <div class="col-sm-4 offset-4" style="border-style:inset;">
-                    <h2 style="text-align:center">Clock Speed</h2>
-                    <div>
-                        <input type="range" min="1" max="50" v-model="clockSpeed"/>
-                        <p>{{clockSpeed}}</p>
-                    </div>
-                </div>
-            </div>
-            <div class="row">
-                <div class="col-sm-12">
-                    <div class="row">
-                        <div class="col-sm-5">
+            <div class="contentFooter"></div>
+
+            <br/>
+
+            <div v-if="displayDebugger">
+                <div class="contentHeader"></div>
+
+                <div class="contentObject">
+                    <div class="debugger">
+                        <div>
                             <h2 style="text-align:center">Activity Log</h2>
                             <hr/>
-                            <div class="row"  style="height: 900px; overflow:scroll; border-style:inset">
-                                <div class="col-sm-12">
+                            <div style="height: 900px; overflow:scroll;">
                                     <table>
                                         <tr>
                                             <th>Opcode</th>
@@ -85,47 +126,16 @@ $binaryString = implode(",",$binaryToLoad);
                                             <th>{{item.message}}</th>
                                         </tr>
                                     </table>
-                                </div>
-                            </div>
                         </div>
 
-                        <div class="col-sm-7">
+                        </div>
+
+                        <div>
                             <h2 style="text-align:center">Current CPU State</h2>
                             <hr/>
 
-                            <div class="row">
-                                <div class="col-sm-12" style="border-style:inset">
-                                    <p style="text-align: center">
-                                        Controls
-                                    </p>
-
-                                    <div class="row">
-                                        <div class="col-sm-3">
-                                            <button v-on:click="toggleMemoryDisplay">Mem Display</button>
-                                        </div>
-
-                                        <div class="col-sm-3">
-                                            <button v-on:click="resetCPU">Reset</button>
-                                        </div>
-
-                                        <div class="col-sm-3">
-                                            <button v-on:click="stepCPU">Step</button>
-                                        </div>
-
-                                        <div class="col-sm-3">
-                                            <div v-if="CPUState.state === 'running'">
-                                                <button v-if="" v-on:click="breakCPU">Break</button>
-                                            </div>
-                                            <div v-else>
-                                                <button v-if="" v-on:click="runCPU">Run</button>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="row">
-                                <div class="col-sm-6" style="border-style:inset">
+                            <div class="cpuStatus">
+                                <div>
                                     <p style="text-align: center">Registers</p>
                                     <hr/>
 
@@ -140,7 +150,7 @@ $binaryString = implode(",",$binaryToLoad);
                                     </p>
                                 </div>
 
-                                <div class="col-sm-6" style="border-style:inset">
+                                <div>
                                     <p style="text-align: center">Memory</p>
                                     <hr/>
 
@@ -151,9 +161,15 @@ $binaryString = implode(",",$binaryToLoad);
                         </div>
                     </div>
                 </div>
+
+                <div class="contentFooter"></div>
             </div>
+
         </div>
+
     </div>
+
+    <br/>
 
     <script src="vue.js"></script>
 
@@ -238,6 +254,7 @@ $binaryString = implode(",",$binaryToLoad);
                 videoMemory: [], // 64x64 Pixels
                 clockSpeed: 1,
                 displayMemory: false,
+                displayDebugger: false,
                 keyboardMap: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
                 characterMap: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
                 largeCharacterMap: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
@@ -259,7 +276,7 @@ $binaryString = implode(",",$binaryToLoad);
                     for (let iX = 0; iX<64*this.videoMode;iX++) {
                         for (let iY = 0; iY<32*this.videoMode; iY++) {
                             if (this.videoMemory[iX][iY]) {
-                                ctx.fillRect(iX*(16/this.videoMode), iY*(16/this.videoMode),(16/this.videoMode), (16/this.videoMode));
+                                ctx.fillRect(iX*(20/this.videoMode), iY*(20/this.videoMode),(20/this.videoMode), (20/this.videoMode));
                             }
                         }
                     }
@@ -322,6 +339,9 @@ $binaryString = implode(",",$binaryToLoad);
                 },
                 toggleMemoryDisplay: function() {
                     this.displayMemory = !this.displayMemory;
+                },
+                toggleDebuggerDisplay: function() {
+                    this.displayDebugger = !this.displayDebugger;
                 },
                 runCPU: function () {
                     this.CPUState.state = "running";
