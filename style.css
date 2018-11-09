@@ -73,6 +73,11 @@ canvas {
     grid-template-columns: 0.5fr 0.5fr;
 }
 
+.emulatorHeader {
+    display: grid;
+    grid-template-columns: 0.2fr 0.5fr 0.3fr;
+}
+
 /* Retro button example from: https://codepen.io/dariocorsi/pen/xpLgrL */
 .buttonGroup {
     display: grid;
